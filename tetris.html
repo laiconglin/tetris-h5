@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>俄罗斯方块</title>
+</head>
+<body onkeyup="return checkKey(event);" style="overflow: hidden;">
+<canvas id="myCanvas" width="400" height="600" style="margin-left: 20px;margin-top: 20px;">
+	Your browser does not support the canvas element.
+</canvas>
+
+<script type="text/javascript">
+	var c=document.getElementById("myCanvas");
+	var ctx=c.getContext("2d");
+	var blockSize = 20;
+	var xColSize = 10;
+	var yRowSize = 20;
+	var maxBlockTypeSize = 7;
+	var initRow = 2;
+	var initCol = 5;
+
+	var stateArray = [];
+
+	var countedFill = 0;
+	var filledRows = [];
+	var totalScore = 0;
+
+	function initStateArray() {
+		for (var i = 0; i < yRowSize; i++) {
+			stateArray[i] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+			filledRows.push(0);
+		}
+		drawScore(0);
+	}
+	initStateArray();
+
+	/**
+	 * 绘制当前游戏所得的分数
+	 */
+	function drawScore(score) {
+		// 进行清空
+		ctx.clearRect(210, 110, 190, 40);
+		ctx.font="25px Microsoft YaHei";
+		ctx.fillStyle="#000000";
+		ctx.fillText("分数: " + score, 210, 130);
+	}
+
+	function drawLine(startX, startY, endX, endY) {
+		ctx.moveTo(startX, startY);
+		ctx.lineTo(endX, endY);
+		ctx.stroke();
+	}
+
+	for (var x = 0; x <= xColSize; x++) {
+		drawLine(x * blockSize, 0, x * blockSize, yRowSize * blockSize);
+	}
+
+	for (var y = 0; y <= yRowSize; y++) {
+		drawLine(0, y * blockSize, xColSize * blockSize, y * blockSize);
+	}
+
+	function getRandomInt(maxSize) {
+		var tmpType = parseInt(Math.random() * 10);
+		return tmpType % maxSize;
+	}
+
+	var blockRelativePositions = [
+		[[0, 0], [1, 0], [2, 0], [-1, 0]], // I
+		[[0, 0], [0, 1], [1, 0], [1, 1]], // O
+		[[0, 0], [-1, 0], [0, 1], [1, 1]], // S
+		[[0, 0], [-1, 1], [0, 1], [1, 0]], // Z
+		[[0, 0], [-1, -1], [0, -1], [0, 1]], // J
+		[[0, 0], [-2, 0], [-1, 0], [0, 1]], // L
+		[[0, 0], [0, -1], [0, 1], [-1, 0]] // T
+	];
+
+	/**
+	 * 返回俄罗斯方块的对象
+	 * @param centerRow1
+	 * @param centerCol1
+	 * @param type    俄罗斯方块的类型 0-6
+	 * @returns {Object}
+	 */
+	function createTetrisBlock(centerRow1, centerCol1, type) {
+		var block = {};
+		block.diffRow = [0, 0, 0, 0];
+		block.diffCol = [0, 0, 0, 0];
+		block.centerRow = centerRow1;
+		block.centerCol = centerCol1;
+		for (var i = 0; i < 4; i++) {
+			block.diffRow[i] = blockRelativePositions[type][i][0];
+			block.diffCol[i] = blockRelativePositions[type][i][1];
+		}
+		return block;
+	}
+
+	/**
+	 *
+	 * @param tmpBlock
+	 * @param stateVal  状态，0：没有被占用，1：临时被占用黑色块，2：中心点红色块，3：闪烁状态黄色块，4：虚拟的影子灰色块，
+	 */
+	function updateTetrisBlockState(tmpBlock, stateVal) {
+		var tmpRow;
+		var tmpCol;
+		for (var i=0; i < tmpBlock.diffRow.length; i++) {
+			tmpRow = tmpBlock.centerRow + tmpBlock.diffRow [i];
+			tmpCol = tmpBlock.centerCol + tmpBlock.diffCol [i];
+			stateArray [tmpRow][tmpCol] = stateVal;
+			// 把中心点描红
+			if (i === 0 && stateVal === 1) {
+				stateArray [tmpRow][tmpCol] = 2;
+			}
+		}
+	}
+
+	function drawOneBlock(row, col) {
+		ctx.fillStyle="#808A87";
+		ctx.fillRect(col * blockSize, row * blockSize, blockSize, blockSize);
+	}
+
+	function drawRedBlock(row, col) {
+		ctx.fillStyle="#FF0000";
+		ctx.fillRect(col * blockSize, row * blockSize, blockSize, blockSize);
+	}
+
+	function drawYellowBlock(row, col) {
+		ctx.fillStyle="#FFD700";
+		ctx.fillRect(col * blockSize, row * blockSize, blockSize, blockSize);
+	}
+
+	function clearBlock(row, col) {
+		ctx.clearRect(col * blockSize, row * blockSize, blockSize, blockSize);
+	}
+
+	function inField (targetRow, targetCol) {
+		return (targetRow < yRowSize && targetRow >= 0 && targetCol >= 0 && targetCol < xColSize);
+	}
+
+	function isCollision (targetRow, targetCol, tmpBlock) {
+		var tmpRow;
+		var tmpCol;
+		var result = false;
+		// 先置为为空，防止块将自己和自己碰撞了
+		updateTetrisBlockState (tmpBlock, 0);
+		for (var i = 0; i < 4; i++) {
+			tmpRow = targetRow + tmpBlock.diffRow [i];
+			tmpCol = targetCol + tmpBlock.diffCol [i];
+			if (!inField (tmpRow, tmpCol) || (stateArray [tmpRow][tmpCol] !== 0)) {
+				result = true;
+			}
+		}
+		// 恢复该移动块的状态
+		updateTetrisBlockState (tmpBlock, 1);
+		return result;
+	}
+
+	function drawStateArray() {
+		// 进行清空
+		ctx.clearRect(0, 0, xColSize * blockSize, yRowSize * blockSize);
+		for (var row = 0; row < stateArray.length; row++) {
+			for (var col = 0; col < stateArray[row].length; col++) {
+				// 状态，0：没有被占用，1：临时被占用黑色块，2：中心点红色块，3：闪烁状态黄色块，4：虚拟的影子灰色块，
+				if (stateArray[row][col] === 1) {
+					drawOneBlock(row, col);
+				} else if (stateArray[row][col] === 2) {
+					drawRedBlock(row, col);
+				} else if (stateArray[row][col] === 3) {
+					drawYellowBlock(row, col);
+				}
+			}
+		}
+
+		for (var x = 0; x <= xColSize; x++) {
+			drawLine(x * blockSize, 0, x * blockSize, yRowSize * blockSize);
+		}
+
+		for (var y = 0; y <= yRowSize; y++) {
+			drawLine(0, y * blockSize, xColSize * blockSize, y * blockSize);
+		}
+	}
+	var countLoop = 0;
+
+	var curBlock = createTetrisBlock(initRow, initCol, getRandomInt(maxBlockTypeSize));
+	var nextBlock = createTetrisBlock(initRow, initCol, getRandomInt(maxBlockTypeSize));
+
+	/**
+	 * 将正在移动的方块移动到指定的地方
+	 * @param curBlock
+	 * @param toRow
+	 * @param toCol
+	 */
+	function moveBlock2Position(curBlock, toRow, toCol) {
+		updateTetrisBlockState(curBlock, 0);
+		curBlock.centerRow = toRow;
+		curBlock.centerCol = toCol;
+		updateTetrisBlockState(curBlock, 1);
+	}
+
+	/**
+	 * 判断当前行是否已经可以被消除了
+	 */
+	function isFillingLine (targetRow) {
+		var flag = true;
+		for (var col = 0; col < xColSize; col++) {
+			if (stateArray [targetRow][col] === 0) {
+				flag = false;
+			}
+		}
+		return flag;
+	}
+
+	/**
+	 * 重置已填充的行的数组
+	 */
+	function resetFilledRows () {
+		for (var i = 0; i < filledRows.length; i++) {
+			filledRows [i] = 0;
+		}
+	}
+
+	/**
+	 * 计算即将被消除行的可以获得的分数
+	 */
+	function countFilledRowsScore() {
+		var countSingleOneLine = 0; // 单行的个数
+		var countDoubleLine = 0; // 连着的两行的个数
+		var countTripleLine = 0; // 连消三行的个数
+		var countFourLine = 0; // 连消四行的个数
+		for (var i = filledRows.length - 1; i >= 0; i--) {
+			if (filledRows[i] === 1) {
+				for (var j = i; j >= 0; j--) {
+					if (filledRows[j] === 0) {
+						var tmpFilledLen = i - j;
+						if (tmpFilledLen === 1) {
+							countSingleOneLine++;
+						} else if (tmpFilledLen === 2) {
+							countDoubleLine++;
+						} else if (tmpFilledLen === 3) {
+							countTripleLine++;
+						} else if (tmpFilledLen === 4) {
+							countFourLine++;
+						}
+						i = j;
+						break;
+					}
+				}
+			}
+		}
+
+		// 分数计算的公式
+		return countSingleOneLine * 100 + countDoubleLine * 400 + countTripleLine * 900 + countFourLine * 1600;
+	}
+
+	/**
+	 * 检查哪些行已经填满了
+	 */
+	function checkFilledLines() {
+		var countLines = 0;
+		for (var row = 0; row < yRowSize; row ++) {
+			if (isFillingLine (row)) {
+				filledRows [row] = 1;
+				countLines ++;
+			}
+		}
+		return countLines;
+	}
+
+	/**
+	 * 判断当前方块是否已经着陆了
+	 */
+	function isGrounded () {
+		return isCollision (curBlock.centerRow + 1, curBlock.centerCol, curBlock);
+	}
+
+	function getGroundedCenterRow (curRow, curCol) {
+		for (var targetRow = curRow; targetRow < yRowSize; targetRow ++) {
+			if (isCollision (targetRow + 1, curCol, curBlock)) {
+				return targetRow;
+			}
+		}
+		return yRowSize - 1;
+	}
+
+	/**
+	 * 判断是否游戏结束了
+	 */
+	function isGameOver () {
+		// when is grounded, check is it over game.
+		var gameOver = false;
+		var tmpRow = -1;
+		var tmpCol = -1;
+		for (var i = 0; i < 4; i++) {
+			tmpRow = curBlock.centerRow + curBlock.diffRow [i];
+			tmpCol = curBlock.centerCol + curBlock.diffCol [i];
+			if (stateArray[tmpRow][tmpCol] === 1) {
+				gameOver = true;
+			}
+		}
+		return gameOver;
+	}
+
+	/**
+	 * 当前回合方块将要移动到行
+	 * @type {number}
+	 */
+	var toRow = -1;
+	/**
+	 * 当前回合方块将要移动到的列
+	 * @type {number}
+	 */
+	var toCol = -1;
+
+	/**
+	 * 游戏的主线程
+	 * @type {number}
+	 */
+	var mainGameInterval = -1;
+
+	/**
+	 * 负责将填满的行进行闪烁和并且消除这一行
+	 * @type {number}
+	 */
+	var animateBlinkInterval = -1;
+
+	/**
+	 * 将正在移动的方块进行旋转
+	 * @param targetRow
+	 * @param targetCol
+	 */
+	function rotate (targetRow, targetCol) {
+		var originalDiffRow = [0, 0, 0, 0];
+		var originalDiffCol = [0, 0, 0, 0];
+		var i;
+		// backup original position
+		for (i = 0; i < 4; i++) {
+			originalDiffRow [i] = curBlock.diffRow [i];
+			originalDiffCol [i] = curBlock.diffCol [i];
+		}
+		updateTetrisBlockState (curBlock, 0);
+		var nextDiffRow = [0, 0, 0, 0];
+		var nextDiffCol = [0, 0, 0, 0];
+
+		// 进行旋转
+		for (i = 0; i < 4; i++) {
+			nextDiffRow [i] = -originalDiffCol [i];
+			nextDiffCol [i] = originalDiffRow [i];
+		}
+
+		var isCollision = false;
+		var tmpRow;
+		var tmpCol;
+		for (i = 0; i < 4; i++) {
+			tmpRow = targetRow + nextDiffRow [i];
+			tmpCol = targetCol + nextDiffCol [i];
+			if (!inField(tmpRow, tmpCol) || (stateArray [tmpRow][tmpCol] === 1)) {
+				isCollision = true;
+			}
+		}
+
+		if (isCollision === false) {
+			for (i = 0; i < 4; i++) {
+				curBlock.diffRow [i] = nextDiffRow [i];
+				curBlock.diffCol [i] = nextDiffCol [i];
+			}
+		} else {
+			for (i = 0; i < 4; i++) {
+				curBlock.diffRow [i] = originalDiffRow [i];
+				curBlock.diffCol [i] = originalDiffCol [i];
+			}
+		}
+		updateTetrisBlockState (curBlock, 1);
+	}
+
+	function checkKey(event) {
+		// console.log(event);
+		// alert(event.keyCode);
+		var leftKeyCode = 37;
+		var rightKeyCode = 39;
+		var upKeyCode = 38;
+		var downKeyCode = 40;
+
+		var curCode = event.keyCode;
+		if (curBlock !== null) {
+			var needMove = false;
+			if (curCode === leftKeyCode) {
+				toRow = curBlock.centerRow;
+				toCol = curBlock.centerCol - 1;
+				needMove = true;
+			} else if (curCode === rightKeyCode) {
+				toRow = curBlock.centerRow;
+				toCol = curBlock.centerCol + 1;
+				needMove = true;
+			} else if (curCode === downKeyCode) {
+				// toRow = curBlock.centerRow + 1;
+				toRow = getGroundedCenterRow (curBlock.centerRow, curBlock.centerCol);
+				toCol = curBlock.centerCol;
+				needMove = true;
+			} else if (curCode === upKeyCode) {
+				toRow = curBlock.centerRow;
+				toCol = curBlock.centerCol;
+				rotate(toRow, toCol);
+				needMove = true;
+			}
+
+			// 如果是有移动的按键，那么移动方块
+			if (needMove === true && isCollision (toRow, toCol, curBlock) === false) {
+				moveBlock2Position(curBlock, toRow, toCol);
+				drawStateArray();
+			}
+		}
+	}
+
+	/**
+	 * 将一整行设置为某个状态
+	 */
+	function setStateArrayByRow (row, val) {
+		for (var col = 0; col < xColSize; col++) {
+			stateArray [row][col] = val;
+		}
+	}
+
+	function cascade () {
+		var offset = 0;
+		// 先将当前移动的块重置
+		updateTetrisBlockState (curBlock, 0);
+		for (var row = yRowSize - 1; row >= 0; row --) {
+			if (filledRows [row] === 1) {
+				cascadeMoveDown (row, offset);
+				offset ++;
+			}
+		}
+
+		// 恢复当前块的状态
+		updateTetrisBlockState (curBlock, 1);
+	}
+
+	function cascadeMoveDown (targetRow, offset) {
+		setStateArrayByRow (targetRow + offset, 0);
+		for (var row = targetRow + offset; row >= 1; row --) {
+			for (var col = 0; col < xColSize; col ++) {
+				stateArray [row][col] = stateArray [row - 1][col];
+			}
+		}
+	}
+
+	/**
+	 * 消除动画开始的时间
+	 * @type {number}
+	 */
+	var startAnimateTime = 0;
+
+	var startAnimateBlink = function () {
+		var curTime = (new Date()).getTime();
+		var animateTime = curTime - startAnimateTime;
+		var curFlag = ((animateTime >= 0 && animateTime <= 500) || (animateTime >= 1000 && animateTime <= 1500)) ? 3 : 1;
+		for (var row = 0; row < filledRows.length; row++) {
+			if (filledRows [row] === 1) {
+				setStateArrayByRow (row, curFlag);
+			}
+		}
+		if (animateTime >= 1500) {
+			// 添加分数
+			if (checkFilledLines()) {
+				totalScore += countFilledRowsScore();
+
+				// 消除行
+				cascade();
+
+				// 重置已经填满的行
+				resetFilledRows();
+
+				drawScore(totalScore);
+			}
+
+			clearInterval(animateBlinkInterval);
+		}
+	};
+
+	var mainWhileLoop = function () {
+		countLoop++;
+		console.log("loop: " + countLoop);
+		if (curBlock !== null) {
+			toRow = curBlock.centerRow + 1;
+			toCol = curBlock.centerCol;
+			// 移动方块
+			var tmpIsCollision = isCollision (toRow, toCol, curBlock);
+			if (tmpIsCollision === false) {
+				moveBlock2Position(curBlock, toRow, toCol);
+			}
+		}
+
+		if (isGrounded()) {
+			// 设置重新生成一个块
+			curBlock = null;
+			var tmpCountFilledLine = checkFilledLines();
+			if (tmpCountFilledLine > 0) {
+				startAnimateTime = (new Date()).getTime();
+				animateBlinkInterval = setInterval(startAnimateBlink, 250);
+			}
+		}
+
+		// 如果移动到了底部，那么开始下一轮
+		if (curBlock === null) {
+			curBlock = nextBlock;
+			nextBlock = createTetrisBlock(initRow, initCol, getRandomInt(maxBlockTypeSize));
+			if (isGameOver()) {
+				alert("game over");
+				// 停止定时任务
+				clearInterval(mainGameInterval);
+			}
+			updateTetrisBlockState(curBlock, 1);
+		}
+	};
+	updateTetrisBlockState(curBlock, 1);
+	drawStateArray();
+	mainGameInterval = setInterval(mainWhileLoop, 1000);
+
+	// 进行重绘
+	setInterval(drawStateArray, 500);
+</script>
+</body>
+</html>
